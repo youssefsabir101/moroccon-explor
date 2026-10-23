@@ -22,7 +22,7 @@ export default function RootLayout({
 
         <footer className="mt-16 border-t border-slate-200 bg-white">
           <div className="mx-auto max-w-7xl px-5 py-8 text-sm text-slate-500">
-            © {new Date().getFullYear()} Maroc Explorer · Découvrez le Maroc.
+            © 2026 Maroc Explorer · Tous droits réservés
           </div>
         </footer>
       </body>

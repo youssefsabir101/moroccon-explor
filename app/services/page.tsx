@@ -5,13 +5,20 @@ const SERVICE_ENDPOINTS = [
   "hospitals",
   "clinics",
   "pharmacies",
+  "banks",
+  "atms",
+  "gas-stations",
+  "parking",
+  "mosques",
+  "administrative-offices",
+  "post-offices",
 ];
 
 export default function ServicesPage() {
   return (
     <DirectoryExplorer
       title="Services au Maroc"
-      description="Recherchez des services de santé et des établissements utiles dans les villes marocaines."
+      description="Trouvez des hôpitaux, cliniques, pharmacies, banques, distributeurs, stations-service et services publics partout au Maroc."
       endpoints={SERVICE_ENDPOINTS}
     />
   );

@@ -1,10 +1,5 @@
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_MAROC_API_BASE_URL ??
-  "https://api.marocapis.com/api/v1";
-
-
-const API_KEY = process.env.NEXT_PUBLIC_MAROC_API_KEY;
+const API_BASE_URL = "/api/maroc";
 
 export type LocalizedName =
   | string
@@ -23,7 +18,13 @@ export interface ApiItem {
   category?: string;
   city?: string;
   region?: string;
+  province?: string;
+  commune?: string;
   address?: string;
+  code?: string;
+  population?: number;
+  latitude?: number;
+  longitude?: number;
   coordinates?: {
     latitude?: number;
     longitude?: number;
@@ -31,56 +32,60 @@ export interface ApiItem {
   [key: string]: unknown;
 }
 
-interface ApiResponse {
+export interface ApiResponse<T = unknown> {
   success?: boolean;
   message?: string;
-  data?: unknown;
+  data?: T;
+  items?: unknown[];
+  [key: string]: unknown;
 }
 
+export type ApiParams = Record<
+  string,
+  string | number | boolean | undefined | null
+>;
+
 function getHeaders(): HeadersInit {
-  const headers: Record<string, string> = {
+  return {
     Accept: "application/json",
   };
-
-  if (API_KEY) {
-    headers["X-API-Key"] = API_KEY;
-  }
-
-  return headers;
 }
 
 export function getDisplayName(
   name?: LocalizedName,
 ): string {
-  if (typeof name === "string") return name;
+  if (typeof name === "string") {
+    return name;
+  }
 
   if (name && typeof name === "object") {
-    return (
-      name.fr ||
-      name.en ||
-      name.ar ||
-      "Sans nom"
-    );
+    return name.fr || name.en || name.ar || "Sans nom";
   }
 
   return "Sans nom";
 }
 
-export async function apiGet<T>(
+export async function apiGet<T = unknown>(
   endpoint: string,
-  params?: Record<string, string | number | undefined>,
+  params?: ApiParams,
 ): Promise<T> {
-  const url = new URL(
-    `${API_BASE_URL.replace(/\/+$/, "")}/${endpoint.replace(/^\/+/, "")}`,
-  );
+  const cleanBase = API_BASE_URL.replace(/\/+$/, "");
+  const cleanEndpoint = endpoint.replace(/^\/+/, "");
+
+  const query = new URLSearchParams();
 
   Object.entries(params ?? {}).forEach(([key, value]) => {
-    if (value !== undefined && value !== "") {
-      url.searchParams.set(key, String(value));
+    if (value !== undefined && value !== null && value !== "") {
+      query.set(key, String(value));
     }
   });
 
-  const response = await fetch(url.toString(), {
+  const queryString = query.toString();
+  const url = `${cleanBase}/${cleanEndpoint}${
+    queryString ? `?${queryString}` : ""
+  }`;
+
+  const response = await fetch(url, {
     method: "GET",
     headers: getHeaders(),
     cache: "no-store",
@@ -100,8 +105,7 @@ export async function apiGet<T>(
 
   if (!response.ok) {
     throw new Error(
-      json.message ||
-        `Erreur API : HTTP ${response.status}`,
+      json.message || `Erreur API : HTTP ${response.status}`,
     );
   }
 
@@ -120,41 +124,153 @@ export function extractItems(response: unknown): ApiItem[] {
   const root = response as Record<string, unknown>;
   const data = root.data;
 
-  // Certains endpoints renvoient data: [...]
   if (Array.isArray(data)) {
     return data as ApiItem[];
   }
 
-  // D'autres renvoient data: { items: [...] }
   if (data && typeof data === "object") {
     const nested = data as Record<string, unknown>;
 
     if (Array.isArray(nested.items)) {
       return nested.items as ApiItem[];
     }
+
+    if (Array.isArray(nested.results)) {
+      return nested.results as ApiItem[];
+    }
   }
 
-  // Fallback si la réponse est directement une liste
   if (Array.isArray(root.items)) {
     return root.items as ApiItem[];
+  }
+
+  if (Array.isArray(root.results)) {
+    return root.results as ApiItem[];
   }
 
   return [];
 }
 
-export async function getCities(): Promise<ApiItem[]> {
-  const response = await apiGet<unknown>("cities");
+// Fonction générique pour récupérer une liste depuis un endpoint.
+export async function getApiItems(
+  endpoint: string,
+  params?: ApiParams,
+): Promise<ApiItem[]> {
+  const response = await apiGet<unknown>(endpoint, params);
   return extractItems(response);
 }
 
+// GEOGRAPHIE
+
+export const getCities = (params?: ApiParams) =>
+  getApiItems("cities", params);
+
+export const getRegions = (params?: ApiParams) =>
+  getApiItems("regions", params);
+
+export const getProvinces = (params?: ApiParams) =>
+  getApiItems("provinces", params);
+
+export const getCommunes = (params?: ApiParams) =>
+  getApiItems("communes", params);
+
+export const getPostalCodes = (params?: ApiParams) =>
+  getApiItems("postal-codes", params);
+
+export const getLocations = (params?: ApiParams) =>
+  apiGet("locations", params);
+
+// PLACES ET SERVICES
+
+export const getPlaces = (params?: ApiParams) =>
+  getApiItems("places", params);
+
+export const getCategories = (params?: ApiParams) =>
+  getApiItems("categories", params);
+
+export const getHotels = (params?: ApiParams) =>
+  getApiItems("hotels", params);
+
+export const getRestaurants = (params?: ApiParams) =>
+  getApiItems("restaurants", params);
+
+export const getHospitals = (params?: ApiParams) =>
+  getApiItems("hospitals", params);
+
+export const getClinics = (params?: ApiParams) =>
+  getApiItems("clinics", params);
+
+export const getPharmacies = (params?: ApiParams) =>
+  getApiItems("pharmacies", params);
+
+export const getCafes = (params?: ApiParams) =>
+  getApiItems("cafes", params);
+
+export const getBanks = (params?: ApiParams) =>
+  getApiItems("banks", params);
+
+export const getAtms = (params?: ApiParams) =>
+  getApiItems("atms", params);
+
+export const getUniversities = (params?: ApiParams) =>
+  getApiItems("universities", params);
+
+export const getSchools = (params?: ApiParams) =>
+  getApiItems("schools", params);
+
+export const getMosques = (params?: ApiParams) =>
+  getApiItems("mosques", params);
+
+export const getParks = (params?: ApiParams) =>
+  getApiItems("parks", params);
+
+export const getMuseums = (params?: ApiParams) =>
+  getApiItems("museums", params);
+
+export const getGasStations = (params?: ApiParams) =>
+  getApiItems("gas-stations", params);
+
+export const getParking = (params?: ApiParams) =>
+  getApiItems("parking", params);
+
+export const getAdministrativeOffices = (params?: ApiParams) =>
+  getApiItems("administrative-offices", params);
+
+export const getPostOffices = (params?: ApiParams) =>
+  getApiItems("post-offices", params);
+
+export const getPorts = (params?: ApiParams) =>
+  getApiItems("ports", params);
+
+export const getAirports = (params?: ApiParams) =>
+  getApiItems("airports", params);
+
+export const getTrainStations = (params?: ApiParams) =>
+  getApiItems("train-stations", params);
+
+export const getTouristAttractions = (params?: ApiParams) =>
+  getApiItems("tourist-attractions", params);
+
+// STATISTIQUES
+
+export const getPopulation = (params?: ApiParams) =>
+  apiGet("population", params);
+
+export const getPlatformStats = () =>
+  apiGet("stats");
+
+// RECHERCHE A PROXIMITE
+
+export const getNearbyPlaces = (params: ApiParams) =>
+  getApiItems("nearby", params);
+
+// Ancienne fonction conservée pour compatibilité
 export async function getDirectoryItems(
   endpoint: string,
   city?: string,
 ): Promise<ApiItem[]> {
-  const response = await apiGet<unknown>(endpoint, {
+  return getApiItems(endpoint, {
     city,
     limit: 50,
   });
-
-  return extractItems(response);
 }

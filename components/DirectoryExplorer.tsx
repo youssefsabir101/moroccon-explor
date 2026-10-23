@@ -14,15 +14,108 @@ interface Props {
   endpoints: string[];
 }
 
+interface DirectoryEntry {
+  item: ApiItem;
+  endpoint: string;
+}
+
+const ENDPOINT_LABELS: Record<string, string> = {
+  hotels: "Hôtel",
+  restaurants: "Restaurant",
+  cafes: "Café",
+  "tourist-attractions": "Attraction touristique",
+  museums: "Musée",
+  parks: "Parc",
+  schools: "École",
+  universities: "Université",
+  hospitals: "Hôpital",
+  clinics: "Clinique",
+  pharmacies: "Pharmacie",
+  banks: "Banque",
+  atms: "Distributeur automatique",
+  "gas-stations": "Station-service",
+  parking: "Parking",
+  mosques: "Mosquée",
+  "administrative-offices": "Administration publique",
+  "post-offices": "Bureau de poste",
+  "train-stations": "Gare ferroviaire",
+  airports: "Aéroport",
+  ports: "Port",
+  "postal-codes": "Code postal",
+  regions: "Région",
+  provinces: "Province / Préfecture",
+  communes: "Commune",
+  cities: "Ville",
+  places: "Lieu",
+  categories: "Catégorie",
+};
+
+function getText(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value);
+  }
+
+  if (value && typeof value === "object") {
+    return getDisplayName(value as {
+      en?: string | null;
+      fr?: string | null;
+      ar?: string | null;
+    });
+  }
+
+  return "";
+}
+
+function getCoordinates(item: ApiItem) {
+  const latitude =
+    item.coordinates?.latitude ?? item.latitude;
+
+  const longitude =
+    item.coordinates?.longitude ?? item.longitude;
+
+  if (
+    typeof latitude !== "number" ||
+    typeof longitude !== "number" ||
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude)
+  ) {
+    return null;
+  }
+
+  return { latitude, longitude };
+}
+
+function getItemName(item: ApiItem): string {
+  return getDisplayName(item.name ?? item.title);
+}
+
+function getUniqueKey(entry: DirectoryEntry): string {
+  const { item, endpoint } = entry;
+
+  const identity =
+    item.id ??
+    [
+      getItemName(item),
+      item.city,
+      item.region,
+      item.address,
+    ]
+      .map((part) => getText(part).trim().toLowerCase())
+      .join("|");
+
+  return `${endpoint}|${String(identity)}`;
+}
+
 export default function DirectoryExplorer({
   title,
   description,
   endpoints,
 }: Props) {
-  const [items, setItems] = useState<ApiItem[]>([]);
+  const [entries, setEntries] = useState<DirectoryEntry[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [failedEndpoints, setFailedEndpoints] = useState<string[]>([]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -33,6 +126,7 @@ export default function DirectoryExplorer({
     async function loadData() {
       setLoading(true);
       setError("");
+      setFailedEndpoints([]);
 
       const results = await Promise.allSettled(
         endpoints.map((endpoint) => getDirectoryItems(endpoint)),
@@ -40,26 +134,42 @@ export default function DirectoryExplorer({
 
       if (!active) return;
 
-      const loadedItems: ApiItem[] = [];
+      const loadedEntries: DirectoryEntry[] = [];
       const errors: string[] = [];
 
       results.forEach((result, index) => {
+        const endpoint = endpoints[index];
+
         if (result.status === "fulfilled") {
-          loadedItems.push(...result.value);
+          result.value.forEach((item) => {
+            loadedEntries.push({ item, endpoint });
+          });
         } else {
-          errors.push(endpoints[index]);
+          console.error(
+            `Erreur de chargement pour ${endpoint}:`,
+            result.reason,
+          );
+          errors.push(endpoint);
         }
       });
 
-      setItems(loadedItems);
+      // Éliminer les doublons à l'intérieur d'une même source.
+      const seen = new Set<string>();
+      const uniqueEntries = loadedEntries.filter((entry) => {
+        const key = getUniqueKey(entry);
 
-      if (loadedItems.length === 0 && errors.length > 0) {
+        if (seen.has(key)) return false;
+
+        seen.add(key);
+        return true;
+      });
+
+      setEntries(uniqueEntries);
+      setFailedEndpoints(errors);
+
+      if (uniqueEntries.length === 0 && errors.length > 0) {
         setError(
-          `Impossible de charger les données (${errors.join(", ")}). Vérifie les endpoints, la clé API et les autorisations CORS.`,
-        );
-      } else if (errors.length > 0) {
-        setError(
-          `Certaines sources n'ont pas répondu : ${errors.join(", ")}.`,
+          `Impossible de charger les données. Sources en erreur : ${errors.join(", ")}.`,
         );
       }
 
@@ -73,19 +183,24 @@ export default function DirectoryExplorer({
     };
   }, [endpoints]);
 
-  const filteredItems = useMemo(() => {
+  const filteredEntries = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
 
-    if (!query) return items;
+    if (!query) return entries;
 
-    return items.filter((item) => {
+    return entries.filter(({ item, endpoint }) => {
       const searchable = [
-        getDisplayName(item.name ?? item.title),
-        item.city,
-        item.region,
-        item.address,
-        item.category,
-        item.description,
+        getItemName(item),
+        getText(item.city),
+        getText(item.region),
+        getText(item.province),
+        getText(item.commune),
+        getText(item.address),
+        getText(item.category),
+        getText(item.description),
+        getText(item.code),
+        endpoint,
+        ENDPOINT_LABELS[endpoint] ?? endpoint,
       ]
         .filter(Boolean)
         .join(" ")
@@ -93,7 +208,7 @@ export default function DirectoryExplorer({
 
       return searchable.includes(query);
     });
-  }, [items, search]);
+  }, [entries, search]);
 
   return (
     <section className="mx-auto max-w-7xl px-5 py-10">
@@ -101,9 +216,11 @@ export default function DirectoryExplorer({
         <p className="mb-2 text-sm font-bold uppercase tracking-wider text-emerald-700">
           Maroc Explorer
         </p>
+
         <h1 className="text-3xl font-black text-slate-900 sm:text-4xl">
           {title}
         </h1>
+
         <p className="mt-3 max-w-2xl leading-7 text-slate-600">
           {description}
         </p>
@@ -113,8 +230,8 @@ export default function DirectoryExplorer({
         type="search"
         value={search}
         onChange={(event) => setSearch(event.target.value)}
-        placeholder="Filtrer les résultats..."
-        aria-label="Filtrer les résultats"
+        placeholder="Rechercher par nom, ville, région ou catégorie..."
+        aria-label="Rechercher dans les résultats"
         className="mb-6 w-full max-w-xl rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
       />
 
@@ -125,73 +242,114 @@ export default function DirectoryExplorer({
       )}
 
       {!loading && error && (
+        <div
+          role="alert"
+          className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && failedEndpoints.length > 0 && (
         <p
           role="status"
           className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
         >
-          {error}
+          Certaines sources n'ont pas répondu :{" "}
+          {failedEndpoints.join(", ")}.
         </p>
       )}
 
-      {!loading && filteredItems.length === 0 && !error && (
+      {!loading && filteredEntries.length === 0 && !error && (
         <p className="rounded-xl bg-slate-50 p-5 text-slate-600">
           Aucun résultat trouvé.
         </p>
       )}
 
-      {!loading && filteredItems.length > 0 && (
+      {!loading && filteredEntries.length > 0 && (
         <>
           <p className="mb-4 text-sm text-slate-500">
-            {filteredItems.length} résultat(s)
+            {filteredEntries.length} résultat(s)
           </p>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filteredItems.map((item, index) => (
-              <article
-                key={`${String(item.id ?? getDisplayName(item.name))}-${index}`}
-                className="rounded-2xl border border-slate-200 bg-white p-5 transition hover:shadow-md"
-              >
-                <h2 className="text-lg font-bold text-slate-900">
-                  {getDisplayName(item.name ?? item.title)}
-                </h2>
+            {filteredEntries.map((entry) => {
+              const { item, endpoint } = entry;
+              const coordinates = getCoordinates(item);
 
-                {item.category && (
-                  <p className="mt-2 text-sm font-medium text-emerald-700">
-                    {item.category}
+              return (
+                <article
+                  key={getUniqueKey(entry)}
+                  className="rounded-2xl border border-slate-200 bg-white p-5 transition hover:shadow-md"
+                >
+                  <p className="mb-2 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                    {ENDPOINT_LABELS[endpoint] ?? endpoint}
                   </p>
-                )}
 
-                {(item.city || item.region) && (
-                  <p className="mt-2 text-sm text-slate-600">
-                    {[item.city, item.region].filter(Boolean).join(" · ")}
-                  </p>
-                )}
+                  <h2 className="text-lg font-bold text-slate-900">
+                    {getItemName(item)}
+                  </h2>
 
-                {item.address && (
-                  <p className="mt-2 text-sm text-slate-600">
-                    {item.address}
-                  </p>
-                )}
+                  {item.category && (
+                    <p className="mt-2 text-sm font-medium text-emerald-700">
+                      {getText(item.category)}
+                    </p>
+                  )}
 
-                {typeof item.description === "string" && (
-                  <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-500">
-                    {item.description}
-                  </p>
-                )}
+                  {(item.city ||
+                    item.region ||
+                    item.province ||
+                    item.commune) && (
+                    <p className="mt-2 text-sm text-slate-600">
+                      {[
+                        getText(item.city),
+                        getText(item.commune),
+                        getText(item.province),
+                        getText(item.region),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
 
-                {typeof item.coordinates?.latitude === "number" &&
-                  typeof item.coordinates?.longitude === "number" && (
+                  {item.address && (
+                    <p className="mt-2 text-sm text-slate-600">
+                      {getText(item.address)}
+                    </p>
+                  )}
+
+                  {item.code && (
+                    <p className="mt-2 text-sm text-slate-600">
+                      Code : {getText(item.code)}
+                    </p>
+                  )}
+
+                  {typeof item.population === "number" && (
+                    <p className="mt-2 text-sm text-slate-600">
+                      Population :{" "}
+                      {item.population.toLocaleString("fr-FR")}
+                    </p>
+                  )}
+
+                  {typeof item.description === "string" && (
+                    <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-500">
+                      {item.description}
+                    </p>
+                  )}
+
+                  {coordinates && (
                     <a
                       className="mt-4 inline-block text-sm font-semibold text-emerald-700 hover:underline"
-                      href={`https://www.google.com/maps?q=${item.coordinates.latitude},${item.coordinates.longitude}`}
+                      href={`https://www.google.com/maps?q=${coordinates.latitude},${coordinates.longitude}`}
                       target="_blank"
                       rel="noreferrer"
                     >
                       Voir sur la carte ↗
                     </a>
                   )}
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
         </>
       )}
